@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>任務管理系統</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 30px auto;
+      padding: 0 20px;
+    }
+    .input-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    input[type="text"], input[type="date"] {
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    input[type="text"] {
+      flex: 2;
+    }
+    input[type="date"] {
+      flex: 1;
+    }
+    button {
+      padding: 8px 16px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #45a049;
+    }
+    ul {
+      list-style-type: none;
+      padding: 0;
+    }
+    li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px;
+      border-bottom: 1px solid #ddd;
+      gap: 10px;
+    }
+    .task-info {
+      display: flex;
+      gap: 10px;
+      flex: 1;
+    }
+    .btn-edit {
+      background-color: #2196F3;
+    }
+    .btn-edit:hover {
+      background-color: #0b7dda;
+    }
+    .btn-delete {
+      background-color: #f44336;
+    }
+    .btn-delete:hover {
+      background-color: #da190b;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>任務管理</h2>
+
+  <!-- 新增任務區域 -->
+  <div class="input-group">
+    <input type="text" id="taskNameInput" placeholder="輸入任務名稱 (如：9/9)" autocomplete="off">
+    <input type="date" id="taskDateInput">
+    <button onclick="addTask()">新增任務</button>
+  </div>
+
+  <!-- 任務列表 -->
+  <ul id="taskList"></ul>
+
+  <script>
+    let tasks = [];
+
+    // 新增任務
+    function addTask() {
+      const nameInput = document.getElementById('taskNameInput');
+      const dateInput = document.getElementById('taskDateInput');
+
+      // 強制轉為純字串，完全不讓系統自動轉換格式
+      const nameValue = String(nameInput.value).trim();
+      const dateValue = dateInput.value;
+
+      if (!nameValue) {
+        alert('請輸入任務名稱');
+        return;
+      }
+
+      const newTask = {
+        id: Date.now(),
+        name: nameValue, // 保持原始輸入文字
+        date: dateValue
+      };
+
+      tasks.push(newTask);
+      renderTasks();
+
+      // 清空輸入框
+      nameInput.value = '';
+      dateInput.value = '';
+    }
+
+    // 渲染任務列表
+    function renderTasks() {
+      const listElement = document.getElementById('taskList');
+      listElement.innerHTML = '';
+
+      tasks.forEach(task => {
+        const li = document.createElement('li');
+        li.id = `task-${task.id}`;
+
+        // 預設為顯示狀態
+        li.innerHTML = `
+          <div class="task-info">
+            <span class="task-name">${escapeHtml(task.name)}</span>
+            <span class="task-date">${task.date ? `(${task.date})` : '(無日期)'}</span>
+          </div>
+          <div>
+            <button class="btn-edit" onclick="enableEdit(${task.id})">修改</button>
+            <button class="btn-delete" onclick="deleteTask(${task.id})">刪除</button>
+          </div>
+        `;
+        listElement.appendChild(li);
+      });
+    }
+
+    // 開啟編輯模式
+    function enableEdit(id) {
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+
+      const li = document.getElementById(`task-${id}`);
+      
+      // 切換為可編輯的 input 欄位
+      li.innerHTML = `
+        <div class="task-info">
+          <input type="text" id="edit-name-${id}" value="${escapeHtml(task.name)}">
+          <input type="date" id="edit-date-${id}" value="${task.date}">
+        </div>
+        <div>
+          <button onclick="saveEdit(${id})">儲存</button>
+          <button class="btn-delete" onclick="renderTasks()">取消</button>
+        </div>
+      `;
+    }
+
+    // 儲存修改
+    function saveEdit(id) {
+      const newNameInput = document.getElementById(`edit-name-${id}`);
+      const newDateInput = document.getElementById(`edit-date-${id}`);
+
+      // 強制保持純字串
+      const newName = String(newNameInput.value).trim();
+      const newDate = newDateInput.value;
+
+      if (!newName) {
+        alert('任務名稱不能為空');
+        return;
+      }
+
+      // 更新陣列資料
+      const task = tasks.find(t => t.id === id);
+      if (task) {
+        task.name = newName;
+        task.date = newDate;
+      }
+
+      renderTasks();
+    }
+
+    // 刪除任務
+    function deleteTask(id) {
+      tasks = tasks.filter(t => t.id !== id);
+      renderTasks();
+    }
+
+    // 防範 HTML 特殊字元突發狀況（如輸入 <script> 等）
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+  </script>
+
+</body>
+</html>
