@@ -25,7 +25,7 @@
     const { useState, useEffect, useRef, useCallback } = React;
 
     // ─── Google Apps Script API ───────────────────────────────────────────────────
-    const GAS_URL = "https://script.google.com/macros/s/AKfycbwdkquDzl1hlDPODmsmDh5moRgwPjJg3UTa3PgyqLAjQ2KtXDFzkMchmmRpQX6y0e8pvg/exec";
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbzPFanV8RS3C4nDVv36zAJHOsuaIBRFCjk8bl9CdZs8xdkRN5YYkCY5lsffDc7tmOSjUw/exec";
 
     async function gsLoad() {
       const res = await fetch(`${GAS_URL}?action=load&_=${Date.now()}`, { cache: "no-store" });
@@ -34,34 +34,16 @@
       return data;
     }
 
-    async function saveSheet(sheetName, data) {
-      const BATCH_SIZE = 25;
-      const arr = data || [];
-      await fetch(`${GAS_URL}?action=save&sheet=${sheetName}&data=${encodeURIComponent("[]")}&_=${Date.now()}`, { cache: "no-store" });
-      if (arr.length === 0) return;
-
-      if (arr.length <= BATCH_SIZE) {
-        const encoded = encodeURIComponent(JSON.stringify(arr));
-        await fetch(`${GAS_URL}?action=save&sheet=${sheetName}&data=${encoded}&_=${Date.now()}`, { cache: "no-store" });
-        return;
-      }
-
-      for (let i = 0; i < arr.length; i += BATCH_SIZE) {
-        const batch = arr.slice(i, i + BATCH_SIZE);
-        const action = i === 0 ? "save" : "append";
-        const encoded = encodeURIComponent(JSON.stringify(batch));
-        await fetch(`${GAS_URL}?action=${action}&sheet=${sheetName}&data=${encoded}&_=${Date.now()}`, { cache: "no-store" });
-      }
-    }
-
+    // ⚡ 單一 POST 請求一次打包傳送所有資料
     async function gsSave(payload) {
-      await saveSheet("students",         payload.students);
-      await saveSheet("groups",           payload.groups || []);
-      await saveSheet("assignments",      payload.assignments);
-      await saveSheet("categories",       payload.categories);
-      await saveSheet("todos",            payload.todos || []);
-      await saveSheet("progress",         payload.progress);
-      await saveSheet("english_progress", payload.english_progress);
+      const res = await fetch(GAS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload)
+      });
+      const result = await res.json();
+      if (result.error) throw new Error(result.error);
+      return result;
     }
 
     // ─── Constants & Styles ───────────────────────────────────────────────────────
@@ -337,7 +319,6 @@
             }));
             setGroups(g);
 
-            // assignments：直接採用原始字串，完全不轉成 Date 物件
             const a = (data.assignments || []).map(a => ({
               id: Number(a.id),
               name: String(a.name),
@@ -379,7 +360,7 @@
         })();
       }, []);
 
-      // ── Real-time Auto Backup (Debounced Cloud Sync) ────────────────────────
+      // ── Real-time Auto Backup (Debounced Cloud Sync via Single POST) ──────
       const isFirstRender = useRef(true);
 
       const autoSave = useCallback(async () => {
@@ -398,6 +379,7 @@
           const groupRows = groups.map(g => ({ id: g.id, name: String(g.name), student_numbers: JSON.stringify(g.student_numbers) }));
           const assignmentRows = assignments.map(a => ({ id: a.id, name: String(a.name), date: String(a.date || ""), category: String(a.category), assigned_to: JSON.stringify(a.assigned_to || []) }));
 
+          // 打包為單一 payload 發送 POST 請求
           await gsSave({
             students,
             groups: groupRows,
@@ -642,7 +624,7 @@
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // TAB 3: 每日進度 (增加日期欄位與修改名稱/日期)
+    // TAB 3: 每日進度
     // ═══════════════════════════════════════════════════════════════
     function DailyTab({ students, groups, assignments, setAssignments, progress, setProgress, categories, setCategories, todos, setTodos }) {
       const [newAssign, setNewAssign] = useState("");
@@ -679,8 +661,8 @@
         const id = Date.now();
         setAssignments(prev => [{
           id,
-          name: taskName, // 完全不轉換，輸入什麼就顯示什麼
-          date: String(newAssignDate), // 儲存使用者選擇或輸入的日期
+          name: taskName,
+          date: String(newAssignDate),
           category: newAssignCat || categories[0] || "其他",
           assigned_to: assignedTo
         }, ...prev]);
@@ -1116,10 +1098,11 @@
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // TAB 6: 表格列印
+    // TAB 6: 表格列印 (包含欠繳清單自動分頁邏輯)
     // ═══════════════════════════════════════════════════════════════
     function PrintTab({ students, assignments, progress, engProgress, categories, groups }) {
       const [printType, setPrintType] = useState("overview");
+      const [selectedStudentNum, setSelectedStudentNum] = useState(students[0]?.number || 1);
       const getStatus = (aid, sn) => progress[aid]?.[sn] ?? 0;
 
       const openPrintWindow = () => {
@@ -1150,12 +1133,76 @@
               <tbody>${rows}</tbody>
             </table>
           `;
+        } else if (printType === "unpaid") {
+          const stObj = students.find(s => s.number === Number(selectedStudentNum));
+          if (!stObj) return;
+
+          // 取得該學生所有未完成項目
+          const unpaidList = assignments.filter(a => {
+            const isAssigned = !a.assigned_to || a.assigned_to.length === 0 || a.assigned_to.includes(stObj.number);
+            return isAssigned && getStatus(a.id, stObj.number) < 2;
+          });
+
+          // 自動切割每張清單的筆數 (保持字體與表格大小完全不變)
+          const ITEMS_PER_PAGE = 12;
+          const totalPages = Math.ceil(unpaidList.length / ITEMS_PER_PAGE) || 1;
+
+          for (let page = 0; page < totalPages; page++) {
+            const pageItems = unpaidList.slice(page * ITEMS_PER_PAGE, (page + 1) * ITEMS_PER_PAGE);
+
+            const rows = pageItems.map(a => `
+              <tr>
+                <td style="padding:10px;border:1px solid #374151;text-align:center">${a.category}</td>
+                <td style="padding:10px;border:1px solid #374151;text-align:left">${a.name} ${a.date ? `(${a.date})` : ''}</td>
+                <td style="padding:10px;border:1px solid #374151;text-align:center;color:${STATUS_COLOR[getStatus(a.id, stObj.number)]}">${STATUS[getStatus(a.id, stObj.number)]}</td>
+              </tr>
+            `).join("");
+
+            content += `
+              <div style="page-break-after: always; margin-bottom: 40px;">
+                <div style="display:flex;justify-between;align-items:center;border-bottom:2px solid #f97316;padding-bottom:8px;margin-bottom:16px;">
+                  <h2 style="margin:0;color:#f97316">學生作業欠繳清單</h2>
+                  <div>第 ${page + 1} / ${totalPages} 張</div>
+                </div>
+                <div style="margin-bottom:12px;font-size:16px">
+                  <strong>座號：</strong> ${stObj.number} &nbsp;&nbsp;&nbsp;&nbsp;
+                  <strong>姓名：</strong> ${stObj.name} &nbsp;&nbsp;&nbsp;&nbsp;
+                  <strong>列印日期：</strong> ${today()}
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:15px">
+                  <thead>
+                    <tr style="background:#fff7ed">
+                      <th style="padding:10px;border:1px solid #374151;width:20%">分類</th>
+                      <th style="padding:10px;border:1px solid #374151">作業名稱</th>
+                      <th style="padding:10px;border:1px solid #374151;width:20%">狀態</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${rows || '<tr><td colspan="3" style="padding:20px;text-align:center;color:#4ade80">無欠繳作業，太棒了！</td></tr>'}
+                  </tbody>
+                </table>
+              </div>
+            `;
+          }
         }
 
-        w.document.write(`<html><head><title>列印</title><style>body{font-family:sans-serif;padding:20px}table{margin-top:10px}</style></head><body>
-          <button onclick="window.print()" style="padding:8px 16px;background:#f97316;color:#fff;border:none;border-radius:4px;cursor:pointer">🖨 列印</button>
-          ${content}
-        </body></html>`);
+        w.document.write(`
+          <html>
+            <head>
+              <title>列印預覽</title>
+              <style>
+                body { font-family: sans-serif; padding: 20px; }
+                @media print {
+                  .no-print { display: none; }
+                }
+              </style>
+            </head>
+            <body>
+              <button class="no-print" onclick="window.print()" style="padding:8px 16px;background:#f97316;color:#fff;border:none;border-radius:4px;cursor:pointer;margin-bottom:20px">🖨 開始列印</button>
+              ${content}
+            </body>
+          </html>
+        `);
         w.document.close();
       };
 
@@ -1163,6 +1210,24 @@
         <div>
           <h2 style={h2}>🖨 表格列印預覽</h2>
           <div style={card}>
+            <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+              <label style={{ fontWeight: 700, cursor: "pointer" }}>
+                <input type="radio" name="printType" value="overview" checked={printType === "overview"} onChange={() => setPrintType("overview")} /> 全班作業進度總覽表
+              </label>
+              <label style={{ fontWeight: 700, cursor: "pointer" }}>
+                <input type="radio" name="printType" value="unpaid" checked={printType === "unpaid"} onChange={() => setPrintType("unpaid")} /> 單一學生欠繳清單 (自動分頁)
+              </label>
+            </div>
+
+            {printType === "unpaid" && (
+              <div style={{ marginBottom: 16 }}>
+                <span style={{ fontSize: 14, fontWeight: 600, marginRight: 8 }}>選擇學生：</span>
+                <select value={selectedStudentNum} onChange={e => setSelectedStudentNum(e.target.value)} style={inp}>
+                  {students.map(s => <option key={s.number} value={s.number}>{s.number} 號 {s.name}</option>)}
+                </select>
+              </div>
+            )}
+
             <button onClick={openPrintWindow} style={btnOrange}>🖨 開啟列印頁面</button>
           </div>
         </div>
