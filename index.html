@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>班務作業系統</title>
+  <title>daily-todo</title>
   <!-- React & ReactDOM -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -90,7 +90,7 @@
     const STATUS = ["未繳", "訂正", "完成"];
     const STATUS_COLOR = ["#e5e7eb", "#fb923c", "#4ade80"];
     const TEACHER_PASSWORD = "800914";
-    const TABS = ["學生名單", "學生分組", "每日進度", "英文作業", "待辦事項", "表格列印"];
+    const TABS = ["即時進度", "學生名單", "學生分組", "每日進度", "英文作業", "待辦事項", "表格列印"];
     const DEFAULT_CATEGORIES = ["評量", "背書", "考卷", "其他"];
 
     const card = { background: "#fff", borderRadius: 16, padding: 20, marginBottom: 16, boxShadow: "0 2px 8px rgba(0,0,0,0.04)" };
@@ -334,57 +334,63 @@
       const [loaded, setLoaded] = useState(false);
       const [role, setRole] = useState(null);
       const [currentStudent, setCurrentStudent] = useState(null);
+      const [lastFetchTime, setLastFetchTime] = useState("");
 
+      const applyRemoteData = useCallback((data) => {
+        const s = (data.students || []).map(s => ({
+          number: Number(s.number),
+          name: String(s.name),
+          password: s.password ? String(s.password) : String(Number(s.number)),
+        }));
+        setStudents(s);
+
+        const g = (data.groups || []).map(grp => ({
+          id: String(grp.id),
+          name: String(grp.name),
+          student_numbers: grp.student_numbers ? JSON.parse(grp.student_numbers) : []
+        }));
+        setGroups(g);
+
+        const a = (data.assignments || []).map(a => ({
+          id: Number(a.id),
+          name: String(a.name),
+          date: a.date ? String(a.date) : "",
+          category: String(a.category || "其他"),
+          assigned_to: a.assigned_to ? JSON.parse(a.assigned_to) : []
+        }));
+        setAssignments(a);
+
+        const pm = {};
+        (data.progress || []).forEach(({ assignment_id, student_number, status }) => {
+          const aid = Number(assignment_id);
+          if (!pm[aid]) pm[aid] = {};
+          pm[aid][Number(student_number)] = Number(status);
+        });
+        setProgress(pm);
+
+        const em = {};
+        (data.english_progress || []).forEach(({ key, date }) => { em[key] = String(date); });
+        setEngProgress(em);
+
+        const cats = (data.categories || []).map(c => String(c.name)).filter(Boolean);
+        if (cats.length) setCategories(cats);
+
+        const todosData = (data.todos || []).map(t => ({
+          id: String(t.id),
+          title: String(t.title),
+          student_number: Number(t.student_number),
+          done: t.done === "true" || t.done === true,
+        }));
+        setTodos(todosData);
+        setLastFetchTime(new Date().toLocaleTimeString());
+      }, []);
+
+      // 首次數據載入
       useEffect(() => {
         (async () => {
           try {
             const data = await gsLoad();
-            const s = (data.students || []).map(s => ({
-              number: Number(s.number),
-              name: String(s.name),
-              password: s.password ? String(s.password) : String(Number(s.number)),
-            }));
-            setStudents(s);
-
-            const g = (data.groups || []).map(grp => ({
-              id: String(grp.id),
-              name: String(grp.name),
-              student_numbers: grp.student_numbers ? JSON.parse(grp.student_numbers) : []
-            }));
-            setGroups(g);
-
-            const a = (data.assignments || []).map(a => ({
-              id: Number(a.id),
-              name: String(a.name),
-              date: a.date ? String(a.date) : "",
-              category: String(a.category || "其他"),
-              assigned_to: a.assigned_to ? JSON.parse(a.assigned_to) : []
-            }));
-            setAssignments(a);
-
-            const pm = {};
-            (data.progress || []).forEach(({ assignment_id, student_number, status }) => {
-              const aid = Number(assignment_id);
-              if (!pm[aid]) pm[aid] = {};
-              pm[aid][Number(student_number)] = Number(status);
-            });
-            setProgress(pm);
-
-            const em = {};
-            (data.english_progress || []).forEach(({ key, date }) => { em[key] = String(date); });
-            setEngProgress(em);
-
-            const cats = (data.categories || []).map(c => String(c.name)).filter(Boolean);
-            if (cats.length) setCategories(cats);
-
-            const todosData = (data.todos || []).map(t => ({
-              id: String(t.id),
-              title: String(t.title),
-              student_number: Number(t.student_number),
-              done: t.done === "true" || t.done === true,
-            }));
-            setTodos(todosData);
-
+            applyRemoteData(data);
           } catch (err) {
             console.error("載入失敗：", err);
             setLoadMsg(`⚠ 連線失敗，請重新整理頁面（${err.message || err}）`);
@@ -392,7 +398,22 @@
             setLoaded(true);
           }
         })();
-      }, []);
+      }, [applyRemoteData]);
+
+      // 定時 1 分鐘自動更新雲端狀態 (僅在老師登入時觸發)
+      useEffect(() => {
+        if (role !== "teacher") return;
+        const intervalId = setInterval(async () => {
+          try {
+            const data = await gsLoad();
+            applyRemoteData(data);
+          } catch (e) {
+            console.warn("自動定時拉取最新數據失敗:", e);
+          }
+        }, 60000);
+
+        return () => clearInterval(intervalId);
+      }, [role, applyRemoteData]);
 
       const isFirstRender = useRef(true);
 
@@ -505,14 +526,138 @@
             ))}
           </nav>
 
-          <main style={{ padding: "24px", maxWidth: 960, margin: "0 auto" }}>
-            {tab === 0 && <StudentTab students={students} setStudents={setStudents} />}
-            {tab === 1 && <GroupTab students={students} groups={groups} setGroups={setGroups} />}
-            {tab === 2 && <DailyTab students={students} groups={groups} assignments={assignments} setAssignments={setAssignments} progress={progress} setProgress={setProgress} categories={categories} setCategories={setCategories} todos={todos} setTodos={setTodos} />}
-            {tab === 3 && <EnglishTab students={students} engProgress={engProgress} setEngProgress={setEngProgress} />}
-            {tab === 4 && <TodoTab students={students} groups={groups} todos={todos} setTodos={setTodos} />}
-            {tab === 5 && <PrintTab students={students} assignments={assignments} progress={progress} engProgress={engProgress} categories={categories} groups={groups} />}
+          <main style={{ padding: "24px", maxWidth: 1040, margin: "0 auto" }}>
+            {tab === 0 && <RealtimeDashboard students={students} assignments={assignments} progress={progress} lastFetchTime={lastFetchTime} />}
+            {tab === 1 && <StudentTab students={students} setStudents={setStudents} />}
+            {tab === 2 && <GroupTab students={students} groups={groups} setGroups={setGroups} />}
+            {tab === 3 && <DailyTab students={students} groups={groups} assignments={assignments} setAssignments={setAssignments} progress={progress} setProgress={setProgress} categories={categories} setCategories={setCategories} todos={todos} setTodos={setTodos} />}
+            {tab === 4 && <EnglishTab students={students} engProgress={engProgress} setEngProgress={setEngProgress} />}
+            {tab === 5 && <TodoTab students={students} groups={groups} todos={todos} setTodos={setTodos} />}
+            {tab === 6 && <PrintTab students={students} assignments={assignments} progress={progress} engProgress={engProgress} categories={categories} groups={groups} />}
           </main>
+        </div>
+      );
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // TAB 0: 即時進度狀態頁面
+    // ═══════════════════════════════════════════════════════════════
+    function RealtimeDashboard({ students, assignments, progress, lastFetchTime }) {
+      const [viewMode, setViewMode] = useState("today"); // 'today' | 'all_unfinished'
+      const getStatus = (aid, sn) => progress[aid]?.[sn] ?? 0;
+
+      const tDate = today();
+
+      // 依據選擇切換呈現的作業項目
+      const displayAssignments = assignments.filter(a => {
+        if (viewMode === "today") {
+          return a.date === tDate;
+        } else {
+          // 截至目前為止，尚有任何學生未完成 (STATUS 0 或 1) 的作業
+          return students.some(s => {
+            const isAssigned = !a.assigned_to || a.assigned_to.length === 0 || a.assigned_to.includes(s.number);
+            return isAssigned && getStatus(a.id, s.number) < 2;
+          });
+        }
+      });
+
+      return (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <h2 style={{ ...h2, marginBottom: 0 }}>⚡ 即時進度狀態看板</h2>
+            <div style={{ fontSize: 13, color: "#6b7280", background: "#fff", padding: "4px 12px", borderRadius: 20, border: "1px solid #fed7aa" }}>
+              ⏱ 每 1 分鐘自動更新 ｜ 上次更新時間：<strong style={{ color: "#ea580c" }}>{lastFetchTime || "剛才"}</strong>
+            </div>
+          </div>
+
+          <div style={card}>
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <span style={{ fontWeight: 700, fontSize: 14, color: "#374151" }}>切換模式：</span>
+              <button
+                onClick={() => setViewMode("today")}
+                style={{
+                  ...chipBtn,
+                  padding: "8px 18px",
+                  fontSize: 14,
+                  background: viewMode === "today" ? "#f97316" : "#f3f4f6",
+                  color: viewMode === "today" ? "#fff" : "#374151",
+                }}
+              >
+                📅 當日作業狀態 ({assignments.filter(a => a.date === tDate).length} 項)
+              </button>
+              <button
+                onClick={() => setViewMode("all_unfinished")}
+                style={{
+                  ...chipBtn,
+                  padding: "8px 18px",
+                  fontSize: 14,
+                  background: viewMode === "all_unfinished" ? "#ef4444" : "#f3f4f6",
+                  color: viewMode === "all_unfinished" ? "#fff" : "#374151",
+                }}
+              >
+                🚨 截至目前所有未完成作業 ({displayAssignments.length} 項)
+              </button>
+            </div>
+          </div>
+
+          <div style={{ ...card, overflowX: "auto" }}>
+            {displayAssignments.length === 0 ? (
+              <div style={{ textAlign: "center", padding: "30px 0", color: "#4ade80", fontWeight: 700, fontSize: 16 }}>
+                🎉 {viewMode === "today" ? "當日無作業或當日作業已全部歸檔！" : "恭喜！目前全班沒有任何未完成的作業！"}
+              </div>
+            ) : (
+              <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: "#fff7ed" }}>
+                    <th style={{ padding: "10px 8px", border: "1px solid #fed7aa", width: 80 }}>分類</th>
+                    <th style={{ padding: "10px 8px", border: "1px solid #fed7aa", textAlign: "left", minWidth: 150 }}>作業名稱</th>
+                    <th style={{ padding: "10px 8px", border: "1px solid #fed7aa", width: 80 }}>未完成數</th>
+                    {students.map(s => (
+                      <th key={s.number} style={{ padding: "8px 4px", border: "1px solid #fed7aa", minWidth: 42, textTransform: "none" }}>
+                        <div style={{ color: "#ea580c", fontWeight: 800 }}>{s.number}</div>
+                        <div style={{ fontSize: 11, color: "#6b7280" }}>{s.name}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayAssignments.map(a => {
+                    let unfinishedCount = 0;
+                    students.forEach(s => {
+                      const isAssigned = !a.assigned_to || a.assigned_to.length === 0 || a.assigned_to.includes(s.number);
+                      if (isAssigned && getStatus(a.id, s.number) < 2) unfinishedCount++;
+                    });
+
+                    return (
+                      <tr key={a.id} style={{ textAlign: "center" }}>
+                        <td style={{ padding: "8px 4px", border: "1px solid #e5e7eb", fontWeight: 700, color: "#ea580c", background: "#fff" }}>
+                          {a.category}
+                        </td>
+                        <td style={{ padding: "8px 10px", border: "1px solid #e5e7eb", textAlign: "left", fontWeight: 600, background: "#fff" }}>
+                          {a.name} {a.date && <span style={{ fontSize: 11, color: "#9ca3af" }}>({a.date})</span>}
+                        </td>
+                        <td style={{ padding: "8px 4px", border: "1px solid #e5e7eb", fontWeight: 800, color: unfinishedCount > 0 ? "#ef4444" : "#4ade80", background: "#fff" }}>
+                          {unfinishedCount} 人
+                        </td>
+                        {students.map(s => {
+                          const isAssigned = !a.assigned_to || a.assigned_to.length === 0 || a.assigned_to.includes(s.number);
+                          if (!isAssigned) {
+                            return <td key={s.number} style={{ border: "1px solid #e5e7eb", background: "#f3f4f6", color: "#d1d5db" }}>-</td>;
+                          }
+                          const st = getStatus(a.id, s.number);
+                          return (
+                            <td key={s.number} style={{ border: "1px solid #e5e7eb", background: STATUS_COLOR[st], fontWeight: 700, fontSize: 12 }}>
+                              {STATUS[st]}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       );
     }
@@ -1130,11 +1275,17 @@
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // TAB 6: 表格列印 (修改：設定每頁 12 個項目、超過自動生成第二張)
+    // TAB 6: 表格列印 (更新：新增欠繳清單分類選擇)
     // ═══════════════════════════════════════════════════════════════
     function PrintTab({ students, assignments, progress, engProgress, categories, groups }) {
       const [printType, setPrintType] = useState("overview");
       const [selectedStudents, setSelectedStudents] = useState([]);
+      const [selectedCategories, setSelectedCategories] = useState([]);
+
+      // 保持 selectedCategories 與最新系統分類同步
+      useEffect(() => {
+        setSelectedCategories(categories);
+      }, [categories]);
 
       const getStatus = (aid, sn) => progress[aid]?.[sn] ?? 0;
 
@@ -1144,8 +1295,17 @@
         );
       };
 
+      const toggleCategory = (cat) => {
+        setSelectedCategories(prev =>
+          prev.includes(cat) ? prev.filter(x => x !== cat) : [...prev, cat]
+        );
+      };
+
       const selectAll = () => setSelectedStudents(students.map(s => s.number));
       const clearAll = () => setSelectedStudents([]);
+
+      const selectAllCats = () => setSelectedCategories([...categories]);
+      const clearAllCats = () => setSelectedCategories([]);
 
       const openPrintWindow = () => {
         const w = window.open("", "print_preview", "width=900,height=720");
@@ -1178,6 +1338,7 @@
           `;
         } else if (printType === "unpaid") {
           if (selectedStudents.length === 0) return alert("請至少選擇一位學生！");
+          if (selectedCategories.length === 0) return alert("請至少選擇一個列印分類！");
 
           const allCardsHtml = [];
 
@@ -1186,9 +1347,11 @@
             .sort((a,b) => a.number - b.number);
 
           sortedSelected.forEach(stObj => {
+            // 過濾欠繳項目：必須未完成，且符合選擇的分類
             const unpaidList = assignments.filter(a => {
+              const isCatSelected = selectedCategories.includes(a.category);
               const isAssigned = !a.assigned_to || a.assigned_to.length === 0 || a.assigned_to.includes(stObj.number);
-              return isAssigned && getStatus(a.id, stObj.number) < 2;
+              return isCatSelected && isAssigned && getStatus(a.id, stObj.number) < 2;
             });
 
             // 設定每個 1/4 A4 卡片最多容納 12 個欠繳項目
@@ -1224,7 +1387,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      ${rows || '<tr><td colspan="3" style="padding:10px;text-align:center;color:#4ade80;font-size:11px;">✅ 作業皆已完成！</td></tr>'}
+                      ${rows || '<tr><td colspan="3" style="padding:10px;text-align:center;color:#4ade80;font-size:11px;">✅ 此分類下作業皆已完成！</td></tr>'}
                     </tbody>
                   </table>
                   <div style="position:absolute;bottom:4px;right:8px;font-size:8px;color:#9ca3af;">
@@ -1356,26 +1519,51 @@
             </div>
 
             {printType === "unpaid" && (
-              <div style={{ background: "#fff7ed", padding: 16, borderRadius: 12, marginBottom: 16, border: "1px solid #fed7aa" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#ea580c" }}>👤 選擇列印學生（已選取 {selectedStudents.length} 位）：</div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button onClick={selectAll} style={{ ...chipBtn, background: "#f97316", color: "#fff", padding: "4px 12px" }}>全選</button>
-                    <button onClick={clearAll} style={{ ...chipBtn, background: "#f3f4f6", color: "#374151", padding: "4px 12px" }}>清除</button>
+              <>
+                {/* 選擇分類 */}
+                <div style={{ background: "#fff7ed", padding: 16, borderRadius: 12, marginBottom: 12, border: "1px solid #fed7aa" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#ea580c" }}>🏷 選擇列印分類（已選取 {selectedCategories.length} 個）：</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={selectAllCats} style={{ ...chipBtn, background: "#f97316", color: "#fff", padding: "4px 12px" }}>全選</button>
+                      <button onClick={clearAllCats} style={{ ...chipBtn, background: "#f3f4f6", color: "#374151", padding: "4px 12px" }}>清除</button>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                    {categories.map(cat => {
+                      const sel = selectedCategories.includes(cat);
+                      return (
+                        <button key={cat} onClick={() => toggleCategory(cat)}
+                          style={{ ...chipBtn, background: sel ? "#ea580c" : "#fff", color: sel ? "#fff" : "#374151", border: sel ? "none" : "1px solid #fed7aa" }}>
+                          {cat} {sel && "✓"}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {students.map(s => {
-                    const sel = selectedStudents.includes(s.number);
-                    return (
-                      <button key={s.number} onClick={() => toggleStudent(s.number)}
-                        style={{ ...chipBtn, background: sel ? "#f97316" : "#fff", color: sel ? "#fff" : "#374151", border: sel ? "none" : "1px solid #fed7aa" }}>
-                        {s.number} {s.name}
-                      </button>
-                    );
-                  })}
+
+                {/* 選擇學生 */}
+                <div style={{ background: "#fff7ed", padding: 16, borderRadius: 12, marginBottom: 16, border: "1px solid #fed7aa" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "#ea580c" }}>👤 選擇列印學生（已選取 {selectedStudents.length} 位）：</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button onClick={selectAll} style={{ ...chipBtn, background: "#f97316", color: "#fff", padding: "4px 12px" }}>全選</button>
+                      <button onClick={clearAll} style={{ ...chipBtn, background: "#f3f4f6", color: "#374151", padding: "4px 12px" }}>清除</button>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {students.map(s => {
+                      const sel = selectedStudents.includes(s.number);
+                      return (
+                        <button key={s.number} onClick={() => toggleStudent(s.number)}
+                          style={{ ...chipBtn, background: sel ? "#f97316" : "#fff", color: sel ? "#fff" : "#374151", border: sel ? "none" : "1px solid #fed7aa" }}>
+                          {s.number} {s.name}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              </>
             )}
 
             <button onClick={openPrintWindow} style={btnOrange}>🖨 開啟列印頁面</button>
