@@ -612,17 +612,19 @@
                     <th style={{ padding: "10px 8px", border: "1px solid #fed7aa", textAlign: "left", width: 95, minWidth: 95 }}>作業名稱</th>
                     <th style={{ padding: "10px 6px", border: "1px solid #fed7aa", width: 65 }}>未完成數</th>
                     {students.map(s => (
-                      <th key={s.number} style={{ padding: "10px 4px", border: "1px solid #fed7aa", minWidth: 28, textTransform: "none", verticalAlign: "bottom" }}>
-                        <div style={{ color: "#ea580c", fontWeight: 800, textAlign: "center", marginBottom: 4 }}>{s.number}</div>
+                      <th key={s.number} style={{ padding: "10px 4px", border: "1px solid #fed7aa", minWidth: 32, textTransform: "none", verticalAlign: "bottom" }}>
+                        <div style={{ color: "#ea580c", fontWeight: 800, textAlign: "center", marginBottom: 6 }}>{s.number}</div>
                         <div style={{
                           writingMode: "vertical-rl",
                           textOrientation: "upright",
-                          fontSize: 11,
-                          color: "#6b7280",
+                          fontSize: 12,
+                          color: "#4b5563",
                           margin: "0 auto",
-                          letterSpacing: 1,
+                          letterSpacing: 2,
                           display: "flex",
-                          alignItems: "center"
+                          alignItems: "center",
+                          justifyContent: "center",
+                          height: 200
                         }}>
                           {s.name}
                         </div>
