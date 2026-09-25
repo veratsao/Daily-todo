@@ -558,7 +558,7 @@
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // TAB 0: 即時進度狀態頁面
+    // TAB 0: 即時進度狀態頁面 (已修正寬度與姓名直式排版)
     // ═══════════════════════════════════════════════════════════════
     function RealtimeDashboard({ students, assignments, progress, lastFetchTime }) {
       const [viewMode, setViewMode] = useState("today");
@@ -622,21 +622,28 @@
                 🎉 {viewMode === "today" ? "當日無作業或當日作業已全部歸檔！" : "恭喜！目前全班沒有任何未完成的作業！"}
               </div>
             ) : (
-              <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+              <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 12, tableLayout: "fixed" }}>
                 <thead>
                   <tr style={{ background: "#fff7ed" }}>
-                    <th style={{ padding: "10px 6px", border: "1px solid #fed7aa", width: 70 }}>分類</th>
-                    <th style={{ padding: "10px 8px", border: "1px solid #fed7aa", textAlign: "left", minWidth: 140 }}>作業名稱</th>
-                    <th style={{ padding: "10px 6px", border: "1px solid #fed7aa", width: 65 }}>未完成數</th>
+                    <th style={{ padding: "8px 4px", border: "1px solid #fed7aa", width: 55 }}>分類</th>
+                    <th style={{ padding: "8px 6px", border: "1px solid #fed7aa", textAlign: "left", width: "auto" }}>作業名稱</th>
+                    <th style={{ padding: "8px 4px", border: "1px solid #fed7aa", width: 55 }}>未完成</th>
                     {students.map(s => (
-                      <th key={s.number} style={{ padding: "6px 4px", border: "1px solid #fed7aa", minWidth: 50, verticalAlign: "bottom" }}>
-                        <div style={{ color: "#ea580c", fontWeight: 800, textAlign: "center", marginBottom: 4 }}>{s.number}</div>
+                      <th key={s.number} style={{ padding: "6px 1px", border: "1px solid #fed7aa", width: 33, minWidth: 33, verticalAlign: "bottom" }}>
+                        <div style={{ color: "#ea580c", fontWeight: 800, textAlign: "center", marginBottom: 4, fontSize: 11 }}>{s.number}</div>
                         <div style={{
                           fontSize: 12,
-                          color: "#6b7280",
-                          textAlign: "center",
-                          lineHeight: 1.2,
-                          wordBreak: "break-all"
+                          color: "#374151",
+                          writingMode: "vertical-rl",
+                          textOrientation: "upright",
+                          margin: "0 auto",
+                          letterSpacing: "1px",
+                          fontWeight: 600,
+                          lineHeight: 1.1,
+                          height: "75px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center"
                         }}>
                           {s.name}
                         </div>
@@ -654,14 +661,14 @@
 
                     return (
                       <tr key={a.id} style={{ textAlign: "center" }}>
-                        <td style={{ padding: "8px 4px", border: "1px solid #e5e7eb", fontWeight: 700, color: "#ea580c", background: "#fff" }}>
+                        <td style={{ padding: "6px 2px", border: "1px solid #e5e7eb", fontWeight: 700, color: "#ea580c", background: "#fff", fontSize: 11 }}>
                           {a.category}
                         </td>
-                        <td style={{ padding: "8px 10px", border: "1px solid #e5e7eb", textAlign: "left", fontWeight: 600, background: "#fff" }}>
-                          {a.name} {a.date && <span style={{ fontSize: 11, color: "#9ca3af" }}>({a.date})</span>}
+                        <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textAlign: "left", fontWeight: 600, background: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {a.name} {a.date && <span style={{ fontSize: 10, color: "#9ca3af" }}>({a.date})</span>}
                         </td>
-                        <td style={{ padding: "8px 4px", border: "1px solid #e5e7eb", fontWeight: 800, color: unfinishedCount > 0 ? "#ef4444" : "#4ade80", background: "#fff" }}>
-                          {unfinishedCount} 人
+                        <td style={{ padding: "6px 2px", border: "1px solid #e5e7eb", fontWeight: 800, color: unfinishedCount > 0 ? "#ef4444" : "#4ade80", background: "#fff", fontSize: 11 }}>
+                          {unfinishedCount}人
                         </td>
                         {students.map(s => {
                           const isAssigned = !a.assigned_to || a.assigned_to.length === 0 || a.assigned_to.includes(s.number);
@@ -670,7 +677,7 @@
                           }
                           const st = getStatus(a.id, s.number);
                           return (
-                            <td key={s.number} style={{ border: "1px solid #e5e7eb", background: STATUS_COLOR[st], fontWeight: 700, fontSize: 12, padding: "4px 2px" }}>
+                            <td key={s.number} style={{ border: "1px solid #e5e7eb", background: STATUS_COLOR[st], fontWeight: 700, fontSize: 11, padding: "4px 0", letterSpacing: "-1px" }}>
                               {STATUS[st]}
                             </td>
                           );
