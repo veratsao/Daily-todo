@@ -609,10 +609,10 @@
                 <thead>
                   <tr style={{ background: "#fff7ed" }}>
                     <th style={{ padding: "10px 6px", border: "1px solid #fed7aa", width: 70 }}>分類</th>
-                    <th style={{ padding: "10px 8px", border: "1px solid #fed7aa", textAlign: "left", minWidth: 140 }}>作業名稱</th>
+                    <th style={{ padding: "10px 8px", border: "1px solid #fed7aa", textAlign: "left", width: 95, minWidth: 95 }}>作業名稱</th>
                     <th style={{ padding: "10px 6px", border: "1px solid #fed7aa", width: 65 }}>未完成數</th>
                     {students.map(s => (
-                      <th key={s.number} style={{ padding: "6px 2px", border: "1px solid #fed7aa", minWidth: 28, textTransform: "none", verticalAlign: "bottom" }}>
+                      <th key={s.number} style={{ padding: "10px 4px", border: "1px solid #fed7aa", minWidth: 28, textTransform: "none", verticalAlign: "bottom" }}>
                         <div style={{ color: "#ea580c", fontWeight: 800, textAlign: "center", marginBottom: 4 }}>{s.number}</div>
                         <div style={{
                           writingMode: "vertical-rl",
@@ -621,7 +621,6 @@
                           color: "#6b7280",
                           margin: "0 auto",
                           letterSpacing: 1,
-                          maxHeight: 70,
                           display: "flex",
                           alignItems: "center"
                         }}>
@@ -645,7 +644,8 @@
                           {a.category}
                         </td>
                         <td style={{ padding: "8px 10px", border: "1px solid #e5e7eb", textAlign: "left", fontWeight: 600, background: "#fff" }}>
-                          {a.name} {a.date && <span style={{ fontSize: 11, color: "#9ca3af" }}>({a.date})</span>}
+                          {a.name}
+                          {a.date && <span style={{ display: "block", fontSize: 11, color: "#9ca3af", marginTop: 2 }}>({a.date})</span>}
                         </td>
                         <td style={{ padding: "8px 4px", border: "1px solid #e5e7eb", fontWeight: 800, color: unfinishedCount > 0 ? "#ef4444" : "#4ade80", background: "#fff" }}>
                           {unfinishedCount} 人
