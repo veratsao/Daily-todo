@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>daily-todo</title>
+  <title>班務作業系統</title>
   <!-- React & ReactDOM -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -11,11 +11,32 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <!-- Google Fonts -->
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet">
+  <!-- Google Fonts: 採用非同步延遲載入以加速登入頁渲染 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
   <style>
-    body { font-family: 'Noto Sans TC', sans-serif; background-color: #f9f7f4; margin: 0; }
+    body { font-family: 'Noto Sans TC', system-ui, -apple-system, sans-serif; background-color: #f9f7f4; margin: 0; }
     input, select, textarea { outline: none; }
+    
+    /* 學生姓名直式樣式與超窄欄位設計 */
+    .vertical-student-th {
+      padding: 6px 2px !important;
+      min-width: 24px !important;
+      max-width: 32px !important;
+      vertical-align: top;
+      border: 1px solid #fed7aa;
+    }
+    .student-name-vertical {
+      writing-mode: vertical-lr;
+      text-orientation: upright;
+      letter-spacing: 2px;
+      font-size: 11px;
+      color: #4b5563;
+      margin: 4px auto 0 auto;
+      white-space: nowrap;
+      line-height: 1.2;
+    }
   </style>
 </head>
 <body>
@@ -25,7 +46,6 @@
     const { useState, useEffect, useRef, useCallback } = React;
 
     // ─── Google Apps Script API ───────────────────────────────────────────────────
-    // ⚠️ 部署新的 Apps Script 網頁應用程式後，請把下面這個網址換成新的「/exec」網址
     const GAS_URL = "https://script.google.com/macros/s/AKfycby-Afqm_S9Efdbqaw-m0L5c8Ja5SH0syfpbh8r_u-A1VMMeE9qWFGQjub1OXDG2Z25Qjg/exec";
 
     async function gsFetchWithRetry(fn, retries = 2, delayMs = 1200) {
@@ -101,26 +121,25 @@
     const h2 = { fontSize: 20, fontWeight: 800, color: "#1f2937", marginBottom: 16 };
 
     // ═══════════════════════════════════════════════════════════════
-    // LOGIN SCREEN
+    // LOGIN SCREEN (輕量秒開版本)
     // ═══════════════════════════════════════════════════════════════
-    function LoginScreen({ students, onTeacherLogin, onParentLogin }) {
+    function LoginScreen({ onTeacherLogin, onParentLogin }) {
       const [input, setInput] = useState("");
       const [error, setError] = useState("");
       const [showPw, setShowPw] = useState(false);
 
       const handleLogin = () => {
         setError("");
-        if (input === TEACHER_PASSWORD) {
+        const trimmedInput = input.trim();
+        if (trimmedInput === TEACHER_PASSWORD) {
           onTeacherLogin();
           return;
         }
-        const sn = Number(input);
-        const student = students.find(s => s.number === sn || s.password === input);
-        if (student) {
-          onParentLogin(student);
+        if (trimmedInput !== "") {
+          onParentLogin(trimmedInput);
           return;
         }
-        setError("密碼錯誤，請再試一次");
+        setError("請輸入密碼或座號");
       };
 
       return (
@@ -330,8 +349,9 @@
       const [todos, setTodos] = useState([]);
       const [syncStatus, setSyncStatus] = useState("synced"); 
       const [lastSyncError, setLastSyncError] = useState("");
-      const [loadMsg, setLoadMsg] = useState("載入中…");
+      const [loadMsg, setLoadMsg] = useState("資料讀取中…");
       const [loaded, setLoaded] = useState(false);
+      const [isLoadingData, setIsLoadingData] = useState(false);
       const [role, setRole] = useState(null);
       const [currentStudent, setCurrentStudent] = useState(null);
       const [lastFetchTime, setLastFetchTime] = useState("");
@@ -385,22 +405,39 @@
         setLastFetchTime(new Date().toLocaleTimeString());
       }, []);
 
-      // 首次數據載入
-      useEffect(() => {
-        (async () => {
-          try {
-            const data = await gsLoad();
-            applyRemoteData(data);
-          } catch (err) {
-            console.error("載入失敗：", err);
-            setLoadMsg(`⚠ 連線失敗，請重新整理頁面（${err.message || err}）`);
-          } finally {
-            setLoaded(true);
+      // 登入後非同步載入系統資料
+      const fetchSystemData = useCallback(async (targetStudentInput = null) => {
+        setIsLoadingData(true);
+        try {
+          const data = await gsLoad();
+          applyRemoteData(data);
+          
+          if (targetStudentInput !== null) {
+            const sn = Number(targetStudentInput);
+            const parsedStudents = (data.students || []).map(s => ({
+              number: Number(s.number),
+              name: String(s.name),
+              password: s.password ? String(s.password) : String(Number(s.number)),
+            }));
+            const found = parsedStudents.find(s => s.number === sn || s.password === targetStudentInput);
+            if (found) {
+              setCurrentStudent(found);
+              setRole("parent");
+            } else {
+              alert("找不到該座號或密碼，請重新輸入");
+              setRole(null);
+            }
           }
-        })();
+          setLoaded(true);
+        } catch (err) {
+          console.error("載入失敗：", err);
+          alert(`⚠ 連線失敗，請重新整理頁面（${err.message || err}）`);
+        } finally {
+          setIsLoadingData(false);
+        }
       }, [applyRemoteData]);
 
-      // 定時 1 分鐘自動更新雲端狀態 (僅在老師登入時觸發)
+      // 定時 30 秒自動更新雲端狀態 (老師登入狀態下自動即時拉取)
       useEffect(() => {
         if (role !== "teacher") return;
         const intervalId = setInterval(async () => {
@@ -410,7 +447,7 @@
           } catch (e) {
             console.warn("自動定時拉取最新數據失敗:", e);
           }
-        }, 60000);
+        }, 30000); // 由原本的 60 毫秒改為 30000 毫秒 (30秒)
 
         return () => clearInterval(intervalId);
       }, [role, applyRemoteData]);
@@ -465,24 +502,32 @@
         return () => clearTimeout(timer);
       }, [students, groups, assignments, progress, engProgress, categories, todos, autoSave]);
 
-      const handleTeacherLogin = () => setRole("teacher");
-      const handleParentLogin = (student) => { setRole("parent"); setCurrentStudent(student); };
-      const handleLogout = () => { setRole(null); setCurrentStudent(null); };
+      const handleTeacherLogin = () => {
+        setRole("teacher");
+        fetchSystemData();
+      };
+
+      const handleParentLogin = (inputVal) => {
+        fetchSystemData(inputVal);
+      };
+
+      const handleLogout = () => { setRole(null); setCurrentStudent(null); setLoaded(false); };
       const handlePasswordChange = (studentNumber, newPw) => {
         setStudents(prev => prev.map(s => s.number === studentNumber ? { ...s, password: String(newPw) } : s));
       };
 
-      if (!loaded) return (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#f97316", fontSize: 20, fontWeight: 700 }}>
+      if (role === null) return (
+        <LoginScreen onTeacherLogin={handleTeacherLogin} onParentLogin={handleParentLogin} />
+      );
+
+      if (isLoadingData) return (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", color: "#f97316", fontSize: 20, fontWeight: 700 }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>⚡</div>
           {loadMsg}
         </div>
       );
 
-      if (role === null) return (
-        <LoginScreen students={students} onTeacherLogin={handleTeacherLogin} onParentLogin={handleParentLogin} />
-      );
-
-      if (role === "parent") return (
+      if (role === "parent" && currentStudent) return (
         <ParentView
           student={currentStudent}
           assignments={assignments}
@@ -540,20 +585,18 @@
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // TAB 0: 即時進度狀態頁面
+    // TAB 0: 即時進度狀態頁面 (修改直式姓名欄位與寬度)
     // ═══════════════════════════════════════════════════════════════
     function RealtimeDashboard({ students, assignments, progress, lastFetchTime }) {
-      const [viewMode, setViewMode] = useState("today"); // 'today' | 'all_unfinished'
+      const [viewMode, setViewMode] = useState("today"); 
       const getStatus = (aid, sn) => progress[aid]?.[sn] ?? 0;
 
       const tDate = today();
 
-      // 依據選擇切換呈現的作業項目
       const displayAssignments = assignments.filter(a => {
         if (viewMode === "today") {
           return a.date === tDate;
         } else {
-          // 截至目前為止，尚有任何學生未完成 (STATUS 0 或 1) 的作業
           return students.some(s => {
             const isAssigned = !a.assigned_to || a.assigned_to.length === 0 || a.assigned_to.includes(s.number);
             return isAssigned && getStatus(a.id, s.number) < 2;
@@ -566,7 +609,7 @@
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <h2 style={{ ...h2, marginBottom: 0 }}>⚡ 即時進度狀態看板</h2>
             <div style={{ fontSize: 13, color: "#6b7280", background: "#fff", padding: "4px 12px", borderRadius: 20, border: "1px solid #fed7aa" }}>
-              ⏱ 每 1 分鐘自動更新 ｜ 上次更新時間：<strong style={{ color: "#ea580c" }}>{lastFetchTime || "剛才"}</strong>
+              ⏱ 每 30 秒自動更新 ｜ 上次更新時間：<strong style={{ color: "#ea580c" }}>{lastFetchTime || "剛才"}</strong>
             </div>
           </div>
 
@@ -600,22 +643,22 @@
             </div>
           </div>
 
-          <div style={{ ...card, overflowX: "auto" }}>
+          <div style={{ ...card, padding: "12px 8px", overflowX: "auto" }}>
             {displayAssignments.length === 0 ? (
               <div style={{ textAlign: "center", padding: "30px 0", color: "#4ade80", fontWeight: 700, fontSize: 16 }}>
                 🎉 {viewMode === "today" ? "當日無作業或當日作業已全部歸檔！" : "恭喜！目前全班沒有任何未完成的作業！"}
               </div>
             ) : (
-              <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+              <table style={{ borderCollapse: "collapse", width: "100%", tableLayout: "auto", fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: "#fff7ed" }}>
-                    <th style={{ padding: "10px 8px", border: "1px solid #fed7aa", width: 80 }}>分類</th>
-                    <th style={{ padding: "10px 8px", border: "1px solid #fed7aa", textAlign: "left", minWidth: 150 }}>作業名稱</th>
-                    <th style={{ padding: "10px 8px", border: "1px solid #fed7aa", width: 80 }}>未完成數</th>
+                    <th style={{ padding: "8px 4px", border: "1px solid #fed7aa", width: 60, fontSize: 12 }}>分類</th>
+                    <th style={{ padding: "8px 6px", border: "1px solid #fed7aa", textAlign: "left", minWidth: 120 }}>作業名稱</th>
+                    <th style={{ padding: "8px 2px", border: "1px solid #fed7aa", width: 48, fontSize: 11 }}>未完成</th>
                     {students.map(s => (
-                      <th key={s.number} style={{ padding: "8px 4px", border: "1px solid #fed7aa", minWidth: 42, textTransform: "none" }}>
-                        <div style={{ color: "#ea580c", fontWeight: 800 }}>{s.number}</div>
-                        <div style={{ fontSize: 11, color: "#6b7280" }}>{s.name}</div>
+                      <th key={s.number} className="vertical-student-th">
+                        <div style={{ color: "#ea580c", fontWeight: 800, fontSize: 12 }}>{s.number}</div>
+                        <div className="student-name-vertical">{s.name}</div>
                       </th>
                     ))}
                   </tr>
@@ -630,14 +673,14 @@
 
                     return (
                       <tr key={a.id} style={{ textAlign: "center" }}>
-                        <td style={{ padding: "8px 4px", border: "1px solid #e5e7eb", fontWeight: 700, color: "#ea580c", background: "#fff" }}>
+                        <td style={{ padding: "6px 2px", border: "1px solid #e5e7eb", fontWeight: 700, color: "#ea580c", background: "#fff", fontSize: 11 }}>
                           {a.category}
                         </td>
-                        <td style={{ padding: "8px 10px", border: "1px solid #e5e7eb", textAlign: "left", fontWeight: 600, background: "#fff" }}>
-                          {a.name} {a.date && <span style={{ fontSize: 11, color: "#9ca3af" }}>({a.date})</span>}
+                        <td style={{ padding: "6px 8px", border: "1px solid #e5e7eb", textAlign: "left", fontWeight: 600, background: "#fff", fontSize: 12 }}>
+                          {a.name} {a.date && <span style={{ fontSize: 10, color: "#9ca3af" }}>({a.date})</span>}
                         </td>
-                        <td style={{ padding: "8px 4px", border: "1px solid #e5e7eb", fontWeight: 800, color: unfinishedCount > 0 ? "#ef4444" : "#4ade80", background: "#fff" }}>
-                          {unfinishedCount} 人
+                        <td style={{ padding: "6px 2px", border: "1px solid #e5e7eb", fontWeight: 800, color: unfinishedCount > 0 ? "#ef4444" : "#4ade80", background: "#fff", fontSize: 11 }}>
+                          {unfinishedCount}
                         </td>
                         {students.map(s => {
                           const isAssigned = !a.assigned_to || a.assigned_to.length === 0 || a.assigned_to.includes(s.number);
@@ -646,7 +689,7 @@
                           }
                           const st = getStatus(a.id, s.number);
                           return (
-                            <td key={s.number} style={{ border: "1px solid #e5e7eb", background: STATUS_COLOR[st], fontWeight: 700, fontSize: 12 }}>
+                            <td key={s.number} style={{ border: "1px solid #e5e7eb", background: STATUS_COLOR[st], fontWeight: 700, fontSize: 10, padding: "4px 0" }}>
                               {STATUS[st]}
                             </td>
                           );
@@ -1275,14 +1318,13 @@
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // TAB 6: 表格列印 (更新：新增欠繳清單分類選擇)
+    // TAB 6: 表格列印
     // ═══════════════════════════════════════════════════════════════
     function PrintTab({ students, assignments, progress, engProgress, categories, groups }) {
       const [printType, setPrintType] = useState("overview");
       const [selectedStudents, setSelectedStudents] = useState([]);
       const [selectedCategories, setSelectedCategories] = useState([]);
 
-      // 保持 selectedCategories 與最新系統分類同步
       useEffect(() => {
         setSelectedCategories(categories);
       }, [categories]);
@@ -1347,14 +1389,12 @@
             .sort((a,b) => a.number - b.number);
 
           sortedSelected.forEach(stObj => {
-            // 過濾欠繳項目：必須未完成，且符合選擇的分類
             const unpaidList = assignments.filter(a => {
               const isCatSelected = selectedCategories.includes(a.category);
               const isAssigned = !a.assigned_to || a.assigned_to.length === 0 || a.assigned_to.includes(stObj.number);
               return isCatSelected && isAssigned && getStatus(a.id, stObj.number) < 2;
             });
 
-            // 設定每個 1/4 A4 卡片最多容納 12 個欠繳項目
             const ITEMS_PER_CARD = 12;
             const totalPages = Math.ceil(unpaidList.length / ITEMS_PER_CARD) || 1;
 
@@ -1520,7 +1560,6 @@
 
             {printType === "unpaid" && (
               <>
-                {/* 選擇分類 */}
                 <div style={{ background: "#fff7ed", padding: 16, borderRadius: 12, marginBottom: 12, border: "1px solid #fed7aa" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#ea580c" }}>🏷 選擇列印分類（已選取 {selectedCategories.length} 個）：</div>
@@ -1542,7 +1581,6 @@
                   </div>
                 </div>
 
-                {/* 選擇學生 */}
                 <div style={{ background: "#fff7ed", padding: 16, borderRadius: 12, marginBottom: 16, border: "1px solid #fed7aa" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#ea580c" }}>👤 選擇列印學生（已選取 {selectedStudents.length} 位）：</div>
